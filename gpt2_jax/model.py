@@ -68,3 +68,22 @@ class MLP(eqx.Module):
         x = jax.nn.gelu(x)
         x = jax.vmap(self.proj)(x)
         return x
+
+
+class TransformerBlock(eqx.Module):
+    norm_1: eqx.nn.LayerNorm
+    norm_2: eqx.nn.LayerNorm
+    attn: CausalSelfAttention
+    mlp: MLP
+
+    def __init__(self, config, key, dtype=jnp.bfloat16):
+        key1, key2 = jax.random.split(key, 2)
+        self.norm_1 = eqx.nn.LayerNorm(config.embed_dim)
+        self.attn = CausalSelfAttention(config, key=key1, dtype=dtype)
+        self.norm_2 = eqx.nn.LayerNorm(config.embed_dim)
+        self.mlp = MLP(config, key=key2, dtype=dtype)
+
+    def __call__(self, x, mask=None):
+        x = x + self.attn(jax.vmap(self.norm_1)(x), mask=mask)
+        x = x + self.mlp(jax.vmap(self.norm_2)(x))
+        return x
