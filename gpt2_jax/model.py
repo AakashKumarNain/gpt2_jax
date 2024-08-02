@@ -8,6 +8,7 @@ from typing import Tuple
 from typing import NamedTuple
 
 import equinox as eqx
+from equinox._misc import default_floating_dtype
 
 
 def count_params(model):
@@ -68,6 +69,68 @@ class MLP(eqx.Module):
         x = jax.nn.gelu(x)
         x = jax.vmap(self.proj)(x)
         return x
+
+
+class CausalSelfAttention(eqx.Module):
+    num_heads: int
+    num_layers: int
+    wqkv: eqx.nn.Linear
+    proj: eqx.nn.Linear
+    scale: float
+    
+    def __init__(self, config, key, dtype=jnp.bfloat16):
+        assert config.embed_dim  % config.num_heads == 0
+        dtype = default_floating_dtype() if dtype is None else dtype
+        key1, key2 = jax.random.split(key, 2)
+
+        self.num_heads = config.num_heads
+        self.num_layers = config.num_layers
+        self.scale = 1./ math.sqrt(config.embed_dim)
+        
+        self.wqkv = eqx.nn.Linear(config.embed_dim, 3 * config.embed_dim, key=key1) # 3 for qkv
+        self.proj = eqx.nn.Linear(config.embed_dim, config.embed_dim, key=key2)
+
+        self.wqkv = eqx.tree_at(
+            get_weight_and_bias,
+            self.wqkv,
+            set_weight_and_bias(self.wqkv.weight, self.wqkv.bias, key1, std=0.02,)
+        )
+        self.proj = eqx.tree_at(
+            get_weight_and_bias,
+            self.proj,
+            set_weight_and_bias(
+                self.proj.weight,
+                self.proj.bias,
+                key2,
+                std = 0.02 * (2 * config.num_layers) ** -0.5,
+            )
+        )
+
+    def __call__(self, x, mask=None):
+        # x is of shape [seqlen, embed_dim]
+        # batch size will be handled by vmap
+        T, C = x.shape
+
+        # 1. Calculate qkv
+        qkv = jax.vmap(self.wqkv)(x)
+        
+        # 2. Split qkv into three vectors of equal depth
+        q, k, v = jnp.split(qkv, 3, axis=1)
+
+        # 3. Reshape q, k,v to move the heads to the batch dimension
+        # so that we can calculate the attention for all heads in one go
+        q = jnp.reshape(q, (T, self.num_heads, C // self.num_heads))
+        k = jnp.reshape(k, (T, self.num_heads, C // self.num_heads))
+        v = jnp.reshape(v, (T, self.num_heads, C // self.num_heads))
+
+        # 4. Compute attention
+        # TODO: Implement causal attention function
+        attn = self.compute_attention(q, k, v, mask)
+        attn = jnp.reshape(jnp.transpose(attn, (1, 0, 2)), (T, -1))
+
+        # 5. Projection
+        out = jax.vmap(self.proj)(attn)
+        return out
 
 
 class TransformerBlock(eqx.Module):
