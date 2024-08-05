@@ -150,3 +150,77 @@ class TransformerBlock(eqx.Module):
         x = x + self.attn(jax.vmap(self.norm_1)(x), mask=mask)
         x = x + self.mlp(jax.vmap(self.norm_2)(x))
         return x
+
+
+
+class GPT(eqx.Module):
+    block_size: int
+    num_layers: int
+    num_heads: int
+    vocab_size: int
+    tok_embed_and_head: eqx.nn.Shared
+    pos_embed: eqx.nn.Embedding
+    tf_blocks: TransformerBlock
+    norm: eqx.nn.LayerNorm
+
+    def __init__(self, config, key, dtype=jnp.bfloat16):
+        self.block_size = config.block_size
+        self.num_layers = config.num_layers
+        self.num_heads = config.num_heads
+        self.vocab_size = config.vocab_size
+
+        keys = jax.random.split(key, config.num_layers + 3)
+        key1, key2, key3, tf_keys = keys[0], keys[1], keys[2], keys[3:]
+
+        self.norm = eqx.nn.LayerNorm(config.embed_dim)
+
+        make_layers = lambda k: TransformerBlock(config, key=k, dtype=dtype)
+        self.tf_blocks = eqx.filter_vmap(make_layers)(tf_keys)
+        del make_layers
+        
+        self.pos_embed = eqx.nn.Embedding(config.block_size, config.embed_dim, key=key1)
+        self.pos_embed = eqx.tree_at(get_weight_and_bias,
+            self.pos_embed, set_weight_and_bias(self.pos_embed.weight, None, key1)
+        )
+
+        tok_embed = eqx.nn.Embedding(config.vocab_size, config.embed_dim, key=key2)
+        tok_embed = eqx.tree_at(get_weight_and_bias,
+            tok_embed, set_weight_and_bias(tok_embed.weight, None, key2)
+        )
+
+        lm_head = eqx.nn.Linear(config.embed_dim, config.vocab_size, use_bias=False, key=key3)
+        dst = lambda embed_and_linear: embed_and_linear[1].weight
+        src = lambda embed_and_linear: embed_and_linear[0].weight
+        self.tok_embed_and_head = eqx.nn.Shared((tok_embed, lm_head), dst, src)
+
+    def __call__(self, idx, mask=None):
+        tok_embed, lm_head = self.tok_embed_and_head()
+        seqlen = idx.shape[-1]
+        pos = jnp.arange(0, seqlen, dtype=jnp.int32)
+        
+        # idx is of shape (seqlen,)
+        pos_embed = jax.vmap(self.pos_embed)(pos)
+        tok_embed = jax.vmap(tok_embed)(idx)
+
+        # 2. Add position to token embeddings
+        x = pos_embed + tok_embed
+
+        # 3. Partition the TransformerLayers into static and dynamic parts
+        # and pass the previous output through transformer blocks
+        dynamic_layers, static_layers = eqx.partition(self.tf_blocks, eqx.is_array)
+        layer_idx = 0
+
+        def f(_x, _dynamic_l):
+            layer = eqx.combine(_dynamic_l, static_layers)
+            x, layer_idx = _x
+            x = layer(x)
+            return (x, layer_idx + 1), None
+
+        (x, layer_idx), _ = jax.lax.scan(f, (x, layer_idx), dynamic_layers)
+
+        # 4. Final pre-layer norm
+        x = jax.vmap(self.norm)(x)
+
+        # 5. Classification head
+        logits = jax.vmap(lm_head)(x)
+        return logits
