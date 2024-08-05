@@ -1,6 +1,12 @@
+from typing import NamedTuple
+
+import optax
+import jax
 import equinox as eqx
 from jax import tree_util as jtu
 
+
+######################## Equinox model utils ################################
 
 def is_layer(x):
     return isinstance(x, (eqx.nn.Linear, eqx.nn.Embedding, eqx.nn.LayerNorm))
@@ -19,3 +25,20 @@ def set_mask(x):
     else:
  
         return jtu.tree_map(lambda _: False, x)
+
+############################################################################
+
+
+class RecordNormState(NamedTuple):
+    grad_norm: jax.Array
+
+def record_norm():
+    def init_fn(params):
+        return RecordNormState(grad_norm=jnp.asarray(0.0))
+
+    def update_fn(updates, state, params=None):
+        norm = optax.tree_utils.tree_l2_norm(updates)
+        # jax.debug.print("grad_norm = {norm}", norm=norm)
+        return updates, RecordNormState(grad_norm=norm)
+
+    return optax.GradientTransformation(init_fn, update_fn)
