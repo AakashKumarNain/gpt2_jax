@@ -9,12 +9,27 @@ from jax import tree_util as jtu
 ######################## Equinox model utils ################################
 
 def is_layer(x):
+    """Check if the current pytree is an instance of any Equinox layer."""
     return isinstance(x, (eqx.nn.Linear, eqx.nn.Embedding, eqx.nn.LayerNorm))
+
 
 def is_leaf(x):
     return x is None
 
+
 def set_mask(x):
+    """Sets the mask for certain parameters.
+    
+    There are scenarios where you want to filter out the parameters of the
+    model for applying some specialized op. For example, in this case we
+    are filtering our pytrees and masking certain parameters to avoid applying 
+    `weight_decay` to these parameters. These parameters are:
+
+    1. Linear layer -> Weight decay is only applied to the weights and not the bias
+    2. Embedding -> Weight decay applied to the weights
+    3. Any other layer e.g. LayerNorm -> No weight decay is applied
+    """
+
     if isinstance(x, eqx.nn.Linear):
         # Decay has to be applied only on the weights, and not the biases
         mask = jtu.tree_map(lambda _: True, x)
@@ -23,8 +38,8 @@ def set_mask(x):
     elif isinstance(x, eqx.nn.Embedding):
         return jtu.tree_map(lambda _: True, x)
     else:
- 
         return jtu.tree_map(lambda _: False, x)
+
 
 ############################################################################
 
