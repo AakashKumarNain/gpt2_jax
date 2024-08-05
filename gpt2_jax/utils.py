@@ -45,15 +45,17 @@ def set_mask(x):
 
 
 class RecordNormState(NamedTuple):
+    """Holds the norm of th gradients as jax arrays."""
     grad_norm: jax.Array
 
+
 def record_norm():
+    """Records the norm of th gradients in optax multi-transform chaining."""
     def init_fn(params):
         return RecordNormState(grad_norm=jnp.asarray(0.0))
 
     def update_fn(updates, state, params=None):
         norm = optax.tree_utils.tree_l2_norm(updates)
-        # jax.debug.print("grad_norm = {norm}", norm=norm)
         return updates, RecordNormState(grad_norm=norm)
 
     return optax.GradientTransformation(init_fn, update_fn)
