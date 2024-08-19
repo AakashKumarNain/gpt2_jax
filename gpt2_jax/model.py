@@ -168,17 +168,17 @@ class GPT(eqx.Module):
         self.tf_blocks = eqx.filter_vmap(make_layers)(tf_keys)
         del make_layers
         
-        self.pos_embed = eqx.nn.Embedding(config.block_size, config.embed_dim, key=key1)
+        self.pos_embed = eqx.nn.Embedding(config.block_size, config.embed_dim, key=key1, dtype=dtype)
         self.pos_embed = eqx.tree_at(get_weight_and_bias,
             self.pos_embed, set_weight_and_bias(self.pos_embed.weight, None, key1)
         )
 
-        tok_embed = eqx.nn.Embedding(config.vocab_size, config.embed_dim, key=key2)
+        tok_embed = eqx.nn.Embedding(config.vocab_size, config.embed_dim, key=key2, dtype=dtype)
         tok_embed = eqx.tree_at(get_weight_and_bias,
             tok_embed, set_weight_and_bias(tok_embed.weight, None, key2)
         )
 
-        lm_head = eqx.nn.Linear(config.embed_dim, config.vocab_size, use_bias=False, key=key3)
+        lm_head = eqx.nn.Linear(config.embed_dim, config.vocab_size, use_bias=False, key=key3, dtype=dtype)
         dst = lambda embed_and_linear: embed_and_linear[1].weight
         src = lambda embed_and_linear: embed_and_linear[0].weight
         self.tok_embed_and_head = eqx.nn.Shared((tok_embed, lm_head), dst, src)
@@ -209,7 +209,7 @@ class GPT(eqx.Module):
         (x, layer_idx), _ = jax.lax.scan(f, (x, layer_idx), dynamic_layers)
 
         # 4. Final pre-layer norm
-        x = jax.vmap(self.norm)(x)
+        x = jax.vmap(self.norm)(x.astype(jnp.float32)).astype(jnp.bfloat16)
 
         # 5. Classification head
         logits = jax.vmap(lm_head)(x)
