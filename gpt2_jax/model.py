@@ -87,8 +87,8 @@ class CausalSelfAttention(eqx.Module):
         self.num_layers = config.num_layers
         self.scale = 1./ math.sqrt(config.embed_dim)
         
-        self.wqkv = eqx.nn.Linear(config.embed_dim, 3 * config.embed_dim, key=key1) # 3 for qkv
-        self.proj = eqx.nn.Linear(config.embed_dim, config.embed_dim, key=key2)
+        self.wqkv = eqx.nn.Linear(config.embed_dim, 3 * config.embed_dim, key=key1, dtype=dtype) # 3 for qkv
+        self.proj = eqx.nn.Linear(config.embed_dim, config.embed_dim, key=key2, dtype=dtype)
 
         self.wqkv = eqx.tree_at(
             get_weight_and_bias,
@@ -110,6 +110,7 @@ class CausalSelfAttention(eqx.Module):
         # x is of shape [seqlen, embed_dim]
         # batch size will be handled by vmap
         T, C = x.shape
+        x_dtype = x.dtype
 
         # 1. Calculate qkv
         qkv = jax.vmap(self.wqkv)(x)
@@ -125,7 +126,7 @@ class CausalSelfAttention(eqx.Module):
 
         # 4. Compute attention
         # TODO: Implement causal attention function
-        attn = self.compute_attention(q, k, v, mask)
+        attn = scaled_dot_product_attention(q, k, v, is_causal=True).astype(x_dtype)
         attn = jnp.reshape(jnp.transpose(attn, (1, 0, 2)), (T, -1))
 
         # 5. Projection
