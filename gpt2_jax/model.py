@@ -66,8 +66,8 @@ class MLP(eqx.Module):
 
     def __call__(self, x):
         x = jax.vmap(self.fc1)(x)
-        x = jax.nn.gelu(x)
-        x = jax.vmap(self.proj)(x)
+        x = jax.nn.gelu(x.astype(jnp.float32))
+        x = jax.vmap(self.proj)(x.astype(jnp.bfloat16))
         return x
 
 
