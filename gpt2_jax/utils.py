@@ -41,6 +41,70 @@ def set_mask(x):
         return jtu.tree_map(lambda _: False, x)
 
 
+
+def count_params(model):
+    return sum(x.size for x in jtu.tree_leaves(eqx.filter(model, eqx.is_array)))
+
+
+def get_weight_and_bias(module):
+    if hasattr(module, "bias") and module.bias is not None:
+        return module.weight, module.bias
+    return module.weight
+
+
+def set_weight_and_bias(weight, bias, key, mean=0.0, std=0.02):
+    init = jax.nn.initializers.normal(stddev=std)
+    weight = init(key=key, shape=weight.shape).astype(weight.dtype)
+    if bias is not None:
+        bias = jnp.zeros_like(bias, dtype=weight.dtype)
+        return weight, bias
+    return weight
+
+
+def scaled_dot_product_attention(query, key, value, mask=None, bias=None, is_causal=False, scale=None):
+    attn_dtype = jnp.promote_types(query.dtype, jnp.float32)
+    attn_weight = jnp.matmul(query, jnp.transpose(key, (0, 2, 1))).astype(attn_dtype)
+    
+    scale_factor = 1 / jnp.sqrt(query.shape[-1]) if scale is None else scale
+    scale_factor = jnp.array(scale_factor, dtype=attn_weight.dtype)
+
+    attn_weight *= scale_factor
+    
+    if bias is not None:
+        attn_weight = (attn_weight + bias).astype(attn_weight.dtype)
+
+    if mask is not None:
+        assert mask.dtype == jnp.bool_
+        large_negative_number = _get_large_negative(attn_weight.dtype)
+        padded_attn_weight = jnp.where(mask, attn_weight, large_negative_number)
+    else:
+        padded_attn_weight = attn_weight
+
+    def add_causal_mask(padded_attn_weight):
+        S = query.shape[-2]
+        T = key.shape[-2]
+        mask = _get_causal_mask(S, T, attn_weight.dtype)
+        mask = jnp.broadcast_to(mask, padded_attn_weight.shape)
+        padded_attn_weight += mask
+        return padded_attn_weight
+
+    def no_casual_mask(padded_attn_weight):
+        return padded_attn_weight
+
+
+    padded_attn_weight = jax.lax.cond(
+        is_causal,
+        add_causal_mask,
+        no_casual_mask,
+        operand=padded_attn_weight
+    )
+
+    padded_attn_weight = padded_attn_weight.astype(jnp.float32)
+    probs = jax.nn.softmax(padded_attn_weight, axis=-1).astype(key.dtype)
+    out = jnp.matmul(probs, value)
+    return out
+
+
 ############################################################################
 
 
