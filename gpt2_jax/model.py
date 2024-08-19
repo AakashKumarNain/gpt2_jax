@@ -134,8 +134,11 @@ class TransformerBlock(eqx.Module):
         self.mlp = MLP(config, key=key2, dtype=dtype)
 
     def __call__(self, x, mask=None):
-        x = x + self.attn(jax.vmap(self.norm_1)(x), mask=mask)
-        x = x + self.mlp(jax.vmap(self.norm_2)(x))
+        x_dtype = x.dtype
+        x = jax.vmap(self.norm_1)(x.astype(jnp.float32)).astype(x_dtype)
+        x = x + self.attn(x, mask=mask)
+        x = jax.vmap(self.norm_2)(x.astype(jnp.float32)).astype(x_dtype)
+        x = x + self.mlp(x)
         return x
 
 
