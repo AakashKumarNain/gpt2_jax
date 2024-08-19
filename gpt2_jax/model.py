@@ -25,7 +25,7 @@ def set_weight_and_bias(weight, bias, key, mean=0.0, std=0.02):
     init = jax.nn.initializers.normal(stddev=std)
     weight = init(key=key, shape=weight.shape).astype(weight.dtype)
     if bias is not None:
-        bias = jnp.zeros_like(bias, dtype=bias.dtype)
+        bias = jnp.zeros_like(bias, dtype=weight.dtype)
         return weight, bias
     return weight
 
