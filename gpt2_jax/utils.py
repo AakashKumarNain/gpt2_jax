@@ -2,6 +2,7 @@ from typing import NamedTuple
 
 import optax
 import jax
+import jax.numpy as jnp
 import equinox as eqx
 from jax import tree_util as jtu
 
@@ -59,6 +60,17 @@ def set_weight_and_bias(weight, bias, key, mean=0.0, std=0.02):
         bias = jnp.zeros_like(bias, dtype=weight.dtype)
         return weight, bias
     return weight
+
+
+def _get_large_negative(dtype):
+  dtype_max = jnp.finfo(dtype).max
+  return jnp.asarray(-0.7 * dtype_max, dtype=dtype)
+
+
+def _get_causal_mask(S, T, dtype):
+  pred = jnp.tril(jnp.ones((S, T), dtype=jnp.bool_))
+  mask = jnp.where(pred, jnp.asarray(0.0, dtype), _get_large_negative(dtype))
+  return mask
 
 
 def scaled_dot_product_attention(query, key, value, mask=None, bias=None, is_causal=False, scale=None):
