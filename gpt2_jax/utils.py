@@ -15,6 +15,7 @@ def is_layer(x):
 
 
 def is_leaf(x):
+    """Check if the current node is a leaf"""
     return x is None
 
 
@@ -44,16 +45,34 @@ def set_mask(x):
 
 
 def count_params(model):
+    """Count the parameters in an Equinox model"""
     return sum(x.size for x in jtu.tree_leaves(eqx.filter(model, eqx.is_array)))
 
 
 def get_weight_and_bias(module):
+    """Return the weight and bias(if present) in a layer/module."""
     if hasattr(module, "bias") and module.bias is not None:
         return module.weight, module.bias
     return module.weight
 
 
 def set_weight_and_bias(weight, bias, key, mean=0.0, std=0.02):
+    """Set the weight and bias of a layer.
+
+    The weights are drawn from a normal distribution with a
+    mean value of 0.0 and a given std. The bias (if present)
+    is set to zeros.
+
+    Args:
+        weight: Current value of the weight matrix
+        bias: Current value of the bias vector
+        key: Pseudo random key for sampling data
+        mean: Mean of the normal distribution
+        std: Standard deviation of the normal distribution
+    Returns:
+        New Weight and bias (if not None) values
+    """
+
     init = jax.nn.initializers.normal(stddev=std)
     weight = init(key=key, shape=weight.shape).astype(weight.dtype)
     if bias is not None:
