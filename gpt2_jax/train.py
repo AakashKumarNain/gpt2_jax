@@ -96,4 +96,20 @@ def main(text_file_path):
     param_mask = jtu.tree_map(
         set_mask, eqx.filter(model, eqx.is_array), is_leaf=is_layer)
     
+    # Learning rate schedule with cosine decay
+    schedule = optax.warmup_cosine_decay_schedule(
+        max_lr,
+        min_lr,
+        warmup_steps=warmup_steps,
+        decay_steps=(total_train_steps - warmup_steps),
+    )
+
+    optim = optax.chain(
+        optax.adamw(schedule, mask=param_mask, b1=b1, b2=b2, weight_decay=weight_decay),
+        optax.clip_by_global_norm(grad_clip_norm)
+    )
+    optim = optax.MultiSteps(optim, every_k_schedule=grad_accum_steps)
     
+    opt_state = optim.init(eqx.filter(model, eqx.is_array))
+    flat_model, treedef_model = jtu.tree_flatten(model)
+    flat_opt_state, treedef_opt_state = jtu.tree_flatten(opt_state)
