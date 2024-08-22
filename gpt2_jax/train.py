@@ -120,7 +120,6 @@ def main(text_file_path):
         split="train"
     )
 
-
     # Filter out the parameters so that we apply weight decay to selected
     # parameters only
     param_mask = jtu.tree_map(
@@ -139,7 +138,30 @@ def main(text_file_path):
         optax.clip_by_global_norm(grad_clip_norm)
     )
     optim = optax.MultiSteps(optim, every_k_schedule=grad_accum_steps)
-    
     opt_state = optim.init(eqx.filter(model, eqx.is_array))
+
+    # Flatten the model and optimizer to avoid the little
+    # overhead we get every time we do a forward and a backward pass.
     flat_model, treedef_model = jtu.tree_flatten(model)
     flat_opt_state, treedef_opt_state = jtu.tree_flatten(opt_state)
+
+    for step in range(total_train_steps):
+        start = time.time()
+
+        for micro_step in range(grad_accum_steps):
+            batch_inputs, batch_targets = dl.next_batch()
+            loss, flat_model, flat_opt_state = train_step(
+                    flat_model,
+                    treedef_model,
+                    flat_opt_state,
+                    treedef_opt_state,
+                    optim,
+                    batch_inputs,
+                    batch_targets,
+                )
+
+        end = time.time()
+        dt = end - start
+        tokens_processed = config.block_size * batch_size * grad_accum_steps * num_devices
+        tokens_per_sec = int(tokens_processed / dt)
+        print(f"Step: {step:<5d} | Loss: {loss:<10.4f}  |  time_taken: {dt :<5.2f} s  |  tok/sec: {tokens_per_sec:,}")
