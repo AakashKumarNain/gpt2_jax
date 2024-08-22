@@ -34,6 +34,14 @@ class GPTConfig:
     embed_dim: int = 768 # embedding dimension for the tokens
 
 
+@eqx.filter_value_and_grad
+def compute_loss(model, inputs, labels):
+    """Computes cross entropy loss for a batch of preds and targets."""
+    logits = eqx.filter_vmap(model)(inputs).astype(jnp.float32)
+    loss = optax.softmax_cross_entropy_with_integer_labels(logits, labels)
+    return jnp.mean(loss)
+
+
 @eqx.filter_jit(donate="all")
 def train_step(
     flat_model,
