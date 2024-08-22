@@ -1,9 +1,6 @@
 import os
 import sys
 import time
-import math
-import numpy as np
-from typing import Tuple, NamedTuple
 from dataclasses import dataclass
 
 import jax
@@ -18,11 +15,7 @@ from model import GPT
 from dataset import SimpleDataLoader
 
 from utils import is_layer
-from utils import is_leaf
 from utils import set_mask
-from utils import get_weight_and_bias
-from utils import set_weight_and_bias
-from utils import scaled_dot_product_attention
 
 
 @dataclass
