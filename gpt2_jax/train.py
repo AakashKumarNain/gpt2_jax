@@ -34,6 +34,28 @@ class GPTConfig:
     embed_dim: int = 768 # embedding dimension for the tokens
 
 
+@eqx.filter_jit(donate="all")
+def train_step(
+    flat_model,
+    treedef_model,
+    flat_opt_state,
+    treedef_opt_state,
+    optim,
+    data,
+    targets
+):
+    model = jtu.tree_unflatten(treedef_model, flat_model)
+    opt_state = jtu.tree_unflatten(treedef_opt_state, flat_opt_state)
+
+    loss, grads = compute_loss(model, data, targets)
+
+    updates, opt_state = optim.update(grads, opt_state, eqx.filter(model, eqx.is_array))
+    model = eqx.apply_updates(model, updates)
+
+    flat_update_model = jtu.tree_leaves(model)
+    flat_update_opt_state = jtu.tree_leaves(opt_state)
+    return loss, flat_update_model, flat_update_opt_state
+
 
 def main(text_file_path):
     if not os.path.exists(text_file_path):
