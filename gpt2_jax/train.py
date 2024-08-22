@@ -55,7 +55,7 @@ def main(text_file_path):
     max_lr = 6e-4
     min_lr = max_lr * 0.1
     warmup_steps = 715
-    max_steps = 19073
+    total_train_steps = 19073
     b1 = 0.9
     b2 = 0.95
     weight_decay = 0.1
@@ -69,7 +69,7 @@ def main(text_file_path):
     print(f"Number of heads                        : {config.num_heads}")
     print(f"Embedding dimension size               : {config.embed_dim}")
 
-    print("\n", "="*30, "Hyperparams values", "="*30, "\n")
+    print("\n", "="*30, "Hyper params values", "="*30, "\n")
     print(f"Batch size as per paper                : {total_batch_size}")
     print(f"Max batch size that can be fitted here : {batch_size}")
     print(f"Number of gradient accumulation steps  : {grad_accum_steps}")
@@ -79,8 +79,8 @@ def main(text_file_path):
     print(f"Maximum learning rate                  : {max_lr:.6f}")
     print(f"Warmup steps                           : {warmup_steps}")
     print(f"Decay steps                            : {total_train_steps - warmup_steps}")
-    print(f"Adam betas values                      : {betas}\n")
-    print(f"Using device                           : {device}")
+    print(f"Adam betas values                      : {b1=} {b2=}\n")
+    print(f"Number of devices                      : {num_devices}")
     
     dl = SimpleDataLoader(
         batch_size=batch_size,
