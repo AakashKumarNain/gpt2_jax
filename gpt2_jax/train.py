@@ -49,7 +49,6 @@ def train_step(
     opt_state = jtu.tree_unflatten(treedef_opt_state, flat_opt_state)
 
     loss, grads = compute_loss(model, data, targets)
-
     updates, opt_state = optim.update(grads, opt_state, eqx.filter(model, eqx.is_array))
     model = eqx.apply_updates(model, updates)
 
