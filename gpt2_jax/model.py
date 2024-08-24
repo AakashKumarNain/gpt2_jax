@@ -1,16 +1,10 @@
-import os
-import numpy as np
 import jax
 import math
 import jax.numpy as jnp
-import jax.tree_util as jtu
-from typing import Tuple
-from typing import NamedTuple
 
 import equinox as eqx
 from equinox._misc import default_floating_dtype
 
-from utils import count_params
 from utils import get_weight_and_bias
 from utils import set_weight_and_bias
 from utils import scaled_dot_product_attention
@@ -96,7 +90,6 @@ class CausalSelfAttention(eqx.Module):
         # x is of shape [seqlen, embed_dim]
         # batch size will be handled by vmap
         T, C = x.shape
-        x_dtype = x.dtype
 
         # 1. Calculate qkv
         qkv = jax.vmap(self.wqkv)(x)
@@ -111,9 +104,9 @@ class CausalSelfAttention(eqx.Module):
         v = jnp.reshape(v, (T, self.num_heads, C // self.num_heads))
 
         # 4. Compute attention
-        # TODO: Implement causal attention function
-        attn = scaled_dot_product_attention(q, k, v, is_causal=True).astype(x_dtype)
-        attn = jnp.reshape(jnp.transpose(attn, (1, 0, 2)), (T, -1))
+        attn = scaled_dot_product_attention(q, k, v, is_causal=True).astype(jnp.bfloat16)
+        # attn = jnp.reshape(jnp.transpose(attn, (1, 0, 2)), (T, -1))
+        attn = jnp.reshape(attn, (T, -1))
 
         # 5. Projection
         out = jax.vmap(self.proj)(attn)
