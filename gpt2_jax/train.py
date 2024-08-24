@@ -1,4 +1,24 @@
 import os
+os.environ["CUDA_DEVICE_MAX_CONNECTIONS"] = "1"
+os.environ['XLA_FLAGS'] = (
+    '--xla_gpu_enable_triton_softmax_fusion=true '
+    # '--xla_gpu_triton_gemm_any=True '
+    # '--xla_gpu_enable_async_collectives=true '
+    '--xla_gpu_enable_latency_hiding_scheduler=true '
+    '--xla_gpu_enable_highest_priority_async_stream=true '
+    '--xla_gpu_enable_pipelined_all_gather=true '
+    '--xla_gpu_enable_pipelined_reduce_scatter=true '
+    '--xla_gpu_enable_pipelined_all_reduce=true '
+    '--xla_gpu_enable_pipelined_collectives=false '
+    '--xla_gpu_enable_all_gather_combine_by_dim=false '
+    '--xla_gpu_enable_reduce_scatter_combine_by_dim=false '
+    '--xla_gpu_all_gather_combine_threshold_bytes=8589934592 '
+    '--xla_gpu_reduce_scatter_combine_threshold_bytes=8589934592 '
+    '--xla_gpu_all_reduce_combine_threshold_bytes=8589934592 '
+    '--xla_gpu_multi_streamed_windowed_einsum=true '
+    '--xla_gpu_threshold_for_windowed_einsum_mib=0 '
+)
+
 import sys
 import time
 from dataclasses import dataclass
@@ -16,6 +36,7 @@ from dataset import SimpleDataLoader
 
 from utils import is_layer
 from utils import set_mask
+from utils import count_params
 
 
 @dataclass
@@ -63,12 +84,11 @@ def main(text_file_path):
         sys.exit(1)
     
     config = GPTConfig()
-    model = GPT(config, key=jax.random.PRNGKey(1))
     tokenizer = tiktoken.get_encoding("gpt2")
 
-    batch_size = 8
+    batch_size = 8 # batch size that can fit on a single A100 40G GPU
     total_batch_size = 524288 # ideal batch size as in GPT2 paper
-    num_devices = len(jax.device_count("gpu"))
+    num_devices = jax.device_count("gpu")
     grad_accum_steps = total_batch_size // (batch_size * config.block_size * num_devices)
 
     assert total_batch_size % (batch_size * config.block_size * num_devices) == 0, \
@@ -76,8 +96,8 @@ def main(text_file_path):
 
     max_lr = 6e-4
     min_lr = max_lr * 0.1
-    warmup_steps = 715
-    total_train_steps = 19073
+    warmup_steps = 10 #715
+    total_train_steps = 200 #19073
     b1 = 0.9
     b2 = 0.95
     weight_decay = 0.1
@@ -101,7 +121,7 @@ def main(text_file_path):
     print(f"Maximum learning rate                  : {max_lr:.6f}")
     print(f"Warmup steps                           : {warmup_steps}")
     print(f"Decay steps                            : {total_train_steps - warmup_steps}")
-    print(f"Adam betas values                      : {b1=} {b2=}\n")
+    print(f"AdamW betas values                     : {b1=} {b2=}\n")
     print(f"Number of devices                      : {num_devices}")
     
     dl = SimpleDataLoader(
@@ -112,6 +132,9 @@ def main(text_file_path):
         split="train"
     )
 
+    print("\nLoading GPT2 model...")
+    model = GPT(config, key=jax.random.PRNGKey(1))
+    print(f"Number of parameters in the model       : {(count_params(model)/1e6):.2f} M")
     # Filter out the parameters so that we apply weight decay to selected
     # parameters only
     param_mask = jtu.tree_map(
@@ -137,10 +160,11 @@ def main(text_file_path):
     flat_model, treedef_model = jtu.tree_flatten(model)
     flat_opt_state, treedef_opt_state = jtu.tree_flatten(opt_state)
 
+    print("Training...\n")
     for step in range(total_train_steps):
         start = time.time()
 
-        for micro_step in range(grad_accum_steps):
+        for _ in range(grad_accum_steps):
             batch_inputs, batch_targets = dl.next_batch()
             loss, flat_model, flat_opt_state = train_step(
                     flat_model,
@@ -157,3 +181,7 @@ def main(text_file_path):
         tokens_processed = config.block_size * batch_size * grad_accum_steps * num_devices
         tokens_per_sec = int(tokens_processed / dt)
         print(f"Step: {step:<5d} | Loss: {loss:<10.4f}  |  time_taken: {dt :<5.2f} s  |  tok/sec: {tokens_per_sec:,}")
+
+
+if __name__ == "__main__":
+    main(text_file_path="input.txt")
